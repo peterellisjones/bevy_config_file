@@ -10,6 +10,16 @@
 //! - Override configuration values using environment variables with JSON
 //! - Automatic resource registration with Bevy's reflection system
 //! - Type-safe configuration with serde deserialization
+//! - Optional logging (enabled by default)
+//!
+//! ## Cargo Features
+//!
+//! - `logging` (default): Enable logging of config loading events
+//!
+//! To disable logging, add this to your `Cargo.toml`:
+//! ```toml
+//! bevy_config_file = { version = "*", default-features = false }
+//! ```
 //!
 //! # Quick Start
 //!
@@ -211,6 +221,7 @@ where
 
     match load_config_file::<T>() {
         Ok(config) => {
+            #[cfg(feature = "logging")]
             info!("loaded config from {}", config_path);
             commands.insert_resource(config);
             Ok(())

@@ -3,6 +3,10 @@ name = "bevy_config_file"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+default = ["logging"]
+logging = []
+
 [dependencies]
 bevy = { version = "*", default-features = false, features = ["bevy_log"] }
 serde = { version = "*", features = ["derive"] }
