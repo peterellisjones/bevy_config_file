@@ -6,198 +6,147 @@ use bevy::prelude::Resource;
 use bevy_config_file::{load_resource_from_config_file, ConfigFile};
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::Mutex;
 use tempfile::TempDir;
 
-// Shared test directory for all tests
-static TEST_DIR: OnceLock<TempDir> = OnceLock::new();
+// Mutex to serialize all tests since they change current_dir which is process-global
+static TEST_MUTEX: Mutex<()> = Mutex::new(());
 
-fn get_test_dir() -> &'static TempDir {
-    TEST_DIR.get_or_init(|| TempDir::new().unwrap())
-}
-
+/// Generic test config that can be reused across all tests
 #[derive(Resource, Debug, Serialize, Deserialize, PartialEq)]
-struct ValidConfig {
+struct TestConfig {
     value: i32,
     name: String,
 }
 
-impl ConfigFile for ValidConfig {
-    const PATH: &'static str = "valid_config.yaml";
+impl ConfigFile for TestConfig {
+    const PATH: &'static str = "config.yaml";
 }
 
-#[derive(Resource, Debug, Serialize, Deserialize, PartialEq)]
-struct MissingConfig {
-    value: i32,
-    name: String,
-}
+/// Helper function to run a test with proper locking and cleanup.
+///
+/// This manages:
+/// - Acquiring the TEST_MUTEX to serialize tests
+/// - Creating an isolated temp directory
+/// - Optionally writing a config file
+/// - Optionally setting environment variables
+/// - Changing to the temp directory and restoring it after
+/// - Running the config loading system and passing the app + load result to the callback
+fn run_config_test<T, F>(
+    config_content: Option<&str>,
+    env_vars: Vec<(&str, &str)>,
+    test_fn: F,
+) where
+    T: Resource + for<'de> Deserialize<'de> + Serialize + ConfigFile,
+    F: FnOnce(App, Result<(), bevy::prelude::BevyError>),
+{
+    // Lock to serialize tests that change current_dir and env vars
+    let _lock = TEST_MUTEX.lock().unwrap();
 
-impl ConfigFile for MissingConfig {
-    const PATH: &'static str = "missing_config.yaml";
-}
+    // Create isolated temp directory
+    let test_dir = TempDir::new().unwrap();
 
-#[derive(Resource, Debug, Serialize, Deserialize, PartialEq)]
-struct InvalidYamlConfig {
-    value: i32,
-    name: String,
-}
+    // Optionally write config file
+    if let Some(content) = config_content {
+        let config_path = test_dir.path().join(T::PATH);
+        fs::write(&config_path, content).unwrap();
+    }
 
-impl ConfigFile for InvalidYamlConfig {
-    const PATH: &'static str = "invalid_yaml_config.yaml";
-}
+    // Save original directory and change to test directory
+    let original_dir = std::env::current_dir().unwrap();
+    std::env::set_current_dir(test_dir.path()).unwrap();
 
-#[derive(Resource, Debug, Serialize, Deserialize, PartialEq)]
-struct EnvOverrideConfig {
-    value: i32,
-    name: String,
-}
+    // Set environment variables
+    for (key, value) in &env_vars {
+        unsafe { std::env::set_var(key, value); }
+    }
 
-impl ConfigFile for EnvOverrideConfig {
-    const PATH: &'static str = "env_override_config.yaml";
-}
+    // Run the config loading system
+    let mut app = App::new();
+    let system_result = app.world_mut().run_system_once(load_resource_from_config_file::<T>);
 
-#[derive(Resource, Debug, Serialize, Deserialize, PartialEq)]
-struct InvalidEnvOverrideConfig {
-    value: i32,
-    name: String,
-}
+    // Unwrap the outer Result (system execution) - panic if system fails to run
+    let load_result = system_result.expect("System failed to execute");
 
-impl ConfigFile for InvalidEnvOverrideConfig {
-    const PATH: &'static str = "invalid_env_override_config.yaml";
-}
+    // Pass app and the inner loading result to the test callback
+    test_fn(app, load_result);
 
-fn create_test_config_file(filename: &str, content: &str) -> PathBuf {
-    let test_dir = get_test_dir();
-    let config_path = test_dir.path().join(filename);
-    fs::write(&config_path, content).unwrap();
-    config_path
+    // Cleanup: remove env vars and restore directory
+    for (key, _) in &env_vars {
+        unsafe { std::env::remove_var(key); }
+    }
+    std::env::set_current_dir(original_dir).unwrap();
 }
 
 #[test]
 fn test_load_valid_config() {
-    let test_dir = get_test_dir();
-    let _config_path = create_test_config_file(
-        "valid_config.yaml",
-        "value: 42\nname: test\n",
+    run_config_test::<TestConfig, _>(
+        Some("value: 42\nname: test\n"),
+        vec![],
+        |app, load_result| {
+            assert!(load_result.is_ok());
+
+            let config = app.world().get_resource::<TestConfig>();
+            assert!(config.is_some());
+            let config = config.unwrap();
+            assert_eq!(config.value, 42);
+            assert_eq!(config.name, "test");
+        },
     );
-
-    // Change to test directory so ConfigFile::PATH works
-    let original_dir = std::env::current_dir().unwrap();
-    std::env::set_current_dir(test_dir.path()).unwrap();
-
-    let mut app = App::new();
-    let result: Result<Result<(), _>, _> = app.world_mut().run_system_once(load_resource_from_config_file::<ValidConfig>);
-
-    std::env::set_current_dir(original_dir).unwrap();
-
-    assert!(result.is_ok());
-    let inner_result = result.unwrap();
-    assert!(inner_result.is_ok());
-
-    let config = app.world().get_resource::<ValidConfig>();
-    assert!(config.is_some());
-    let config = config.unwrap();
-    assert_eq!(config.value, 42);
-    assert_eq!(config.name, "test");
 }
 
 #[test]
 fn test_load_missing_config_file() {
-    let test_dir = get_test_dir();
-
-    let original_dir = std::env::current_dir().unwrap();
-    std::env::set_current_dir(test_dir.path()).unwrap();
-
-    let mut app = App::new();
-    let result: Result<Result<(), _>, _> = app.world_mut().run_system_once(load_resource_from_config_file::<MissingConfig>);
-
-    std::env::set_current_dir(original_dir).unwrap();
-
-    assert!(result.is_ok());
-    let inner_result = result.unwrap();
-    assert!(inner_result.is_err());
-    let config = app.world().get_resource::<MissingConfig>();
-    assert!(config.is_none());
+    run_config_test::<TestConfig, _>(
+        None, // No config file written
+        vec![],
+        |app, load_result| {
+            assert!(load_result.is_err());
+            let config = app.world().get_resource::<TestConfig>();
+            assert!(config.is_none());
+        },
+    );
 }
 
 #[test]
 fn test_load_invalid_yaml() {
-    let test_dir = get_test_dir();
-    let _config_path = create_test_config_file(
-        "invalid_yaml_config.yaml",
-        "invalid: yaml: content:\n  - this is bad\n  missing bracket",
+    run_config_test::<TestConfig, _>(
+        Some("invalid: yaml: content:\n  - this is bad\n  missing bracket"),
+        vec![],
+        |app, load_result| {
+            assert!(load_result.is_err());
+            let config = app.world().get_resource::<TestConfig>();
+            assert!(config.is_none());
+        },
     );
-
-    let original_dir = std::env::current_dir().unwrap();
-    std::env::set_current_dir(test_dir.path()).unwrap();
-
-    let mut app = App::new();
-    let result: Result<Result<(), _>, _> = app.world_mut().run_system_once(load_resource_from_config_file::<InvalidYamlConfig>);
-
-    std::env::set_current_dir(original_dir).unwrap();
-
-    assert!(result.is_ok());
-    let inner_result = result.unwrap();
-    assert!(inner_result.is_err());
-    let config = app.world().get_resource::<InvalidYamlConfig>();
-    assert!(config.is_none());
 }
 
 #[test]
 fn test_load_with_env_override() {
-    let test_dir = get_test_dir();
-    let _config_path = create_test_config_file(
-        "env_override_config.yaml",
-        "value: 42\nname: test\n",
+    run_config_test::<TestConfig, _>(
+        Some("value: 42\nname: test\n"),
+        vec![("CONFIG_TestConfig", r#"{"value": 100}"#)],
+        |app, load_result| {
+            assert!(load_result.is_ok());
+
+            let config = app.world().get_resource::<TestConfig>();
+            assert!(config.is_some());
+            let config = config.unwrap();
+            assert_eq!(config.value, 100); // Overridden value
+            assert_eq!(config.name, "test"); // Original value
+        },
     );
-
-    let original_dir = std::env::current_dir().unwrap();
-    std::env::set_current_dir(test_dir.path()).unwrap();
-
-    // Set environment variable override
-    unsafe { std::env::set_var("CONFIG_EnvOverrideConfig", r#"{"value": 100}"#); }
-
-    let mut app = App::new();
-    let result: Result<Result<(), _>, _> = app.world_mut().run_system_once(load_resource_from_config_file::<EnvOverrideConfig>);
-
-    unsafe { std::env::remove_var("CONFIG_EnvOverrideConfig"); }
-    std::env::set_current_dir(original_dir).unwrap();
-
-    assert!(result.is_ok());
-    let inner_result = result.unwrap();
-    assert!(inner_result.is_ok());
-
-    let config = app.world().get_resource::<EnvOverrideConfig>();
-    assert!(config.is_some());
-    let config = config.unwrap();
-    assert_eq!(config.value, 100); // Overridden value
-    assert_eq!(config.name, "test"); // Original value
 }
 
 #[test]
 fn test_load_with_invalid_env_override() {
-    let test_dir = get_test_dir();
-    let _config_path = create_test_config_file(
-        "invalid_env_override_config.yaml",
-        "value: 42\nname: test\n",
+    run_config_test::<TestConfig, _>(
+        Some("value: 42\nname: test\n"),
+        vec![("CONFIG_TestConfig", r#"{"value": invalid json}"#)],
+        |app, load_result| {
+            assert!(load_result.is_err());
+            let config = app.world().get_resource::<TestConfig>();
+            assert!(config.is_none());
+        },
     );
-
-    let original_dir = std::env::current_dir().unwrap();
-    std::env::set_current_dir(test_dir.path()).unwrap();
-
-    // Set invalid JSON in environment variable
-    unsafe { std::env::set_var("CONFIG_InvalidEnvOverrideConfig", r#"{"value": invalid json}"#); }
-
-    let mut app = App::new();
-    let result: Result<Result<(), _>, _> = app.world_mut().run_system_once(load_resource_from_config_file::<InvalidEnvOverrideConfig>);
-
-    unsafe { std::env::remove_var("CONFIG_InvalidEnvOverrideConfig"); }
-    std::env::set_current_dir(original_dir).unwrap();
-
-    assert!(result.is_ok());
-    let inner_result = result.unwrap();
-    assert!(inner_result.is_err());
-    let config = app.world().get_resource::<InvalidEnvOverrideConfig>();
-    assert!(config.is_none());
 }
