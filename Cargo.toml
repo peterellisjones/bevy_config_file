@@ -1,0 +1,13 @@
+[package]
+name = "bevy_config_file"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+bevy = { version = "*", default-features = false, features = ["bevy_log"] }
+serde = { version = "*", features = ["derive"] }
+serde_yaml = "*"
+serde_json = "*"
+
+[dev-dependencies]
+tempfile = "*"
