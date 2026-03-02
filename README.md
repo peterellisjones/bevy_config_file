@@ -16,7 +16,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-bevy_config_file = { git = "https://github.com/peterellisjones/bevy_config_file" }
+bevy_config_file = "0.1"
 ```
 
 ## Quick Start

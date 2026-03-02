@@ -2,16 +2,23 @@
 name = "bevy_config_file"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.85"
+description = "A simple Bevy plugin for loading configuration from YAML files with environment variable overrides"
+license = "MIT"
+repository = "https://github.com/peterellisjones/bevy_config_file"
+keywords = ["bevy", "config", "yaml", "gamedev", "plugin"]
+categories = ["game-engines", "config"]
+readme = "README.md"
 
 [features]
 default = ["logging"]
 logging = []
 
 [dependencies]
-bevy = { version = "*", default-features = false, features = ["bevy_log"] }
-serde = { version = "*", features = ["derive"] }
-serde_yaml = "*"
-serde_json = "*"
+bevy = { version = "^0.18.0", default-features = false, features = ["bevy_log"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_yaml = "0.9"
+serde_json = "1.0"
 
 [dev-dependencies]
-tempfile = "*"
+tempfile = "3"

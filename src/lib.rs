@@ -18,7 +18,7 @@
 //!
 //! To disable logging, add this to your `Cargo.toml`:
 //! ```toml
-//! bevy_config_file = { version = "*", default-features = false }
+//! bevy_config_file = { version = "0.1", default-features = false }
 //! ```
 //!
 //! # Quick Start
@@ -63,7 +63,6 @@ use serde_json::Value as JsonValue;
 use std::{env, fs};
 
 /// Errors that can occur when loading configuration files.
-#[allow(dead_code)]
 #[derive(Debug)]
 pub enum LoadConfigError {
     /// Error parsing YAML content
@@ -302,7 +301,10 @@ where
     };
 
     // Check for environment variable override (used to disable autosaves in test)
-    let type_name = std::any::type_name::<T>().split("::").last().unwrap();
+    let type_name = std::any::type_name::<T>()
+        .split("::")
+        .last()
+        .expect("type name should have at least one component");
     let env_var_name = format!("CONFIG_{type_name}");
 
     if let Ok(json_override) = env::var(&env_var_name) {
