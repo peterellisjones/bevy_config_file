@@ -1,6 +1,6 @@
 [package]
 name = "bevy_config_file"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.85"
 description = "A Bevy plugin for loading configuration from YAML, JSON, or RON files with environment variable overrides"

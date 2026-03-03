@@ -23,7 +23,7 @@
 //!
 //! At least one format feature must be enabled. To use multiple formats:
 //! ```toml
-//! bevy_config_file = { version = "0.1", features = ["yaml", "json", "ron"] }
+//! bevy_config_file = { version = "0.2", features = ["yaml", "json", "ron"] }
 //! ```
 //!
 //! # Quick Start
