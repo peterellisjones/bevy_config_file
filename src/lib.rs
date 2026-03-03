@@ -66,19 +66,31 @@ use std::{env, fs};
 #[derive(Debug)]
 pub enum LoadConfigError {
     /// Error parsing YAML content
-    Yaml(serde_yaml::Error),
+    #[cfg(feature = "yaml")]
+    Yaml(serde_yml::Error),
     /// Error parsing or serializing JSON content
     Json(serde_json::Error),
+    /// Error parsing RON content
+    #[cfg(feature = "ron")]
+    Ron(ron::error::SpannedError),
     /// Error reading the configuration file
     Io(std::io::Error),
+    /// The file extension is not a supported config format
+    UnsupportedFormat(String),
 }
 
 impl std::fmt::Display for LoadConfigError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            #[cfg(feature = "yaml")]
             LoadConfigError::Yaml(e) => write!(f, "YAML parsing error: {}", e),
             LoadConfigError::Json(e) => write!(f, "JSON parsing error: {}", e),
+            #[cfg(feature = "ron")]
+            LoadConfigError::Ron(e) => write!(f, "RON parsing error: {}", e),
             LoadConfigError::Io(e) => write!(f, "IO error: {}", e),
+            LoadConfigError::UnsupportedFormat(ext) => {
+                write!(f, "Unsupported config file format: .{}", ext)
+            }
         }
     }
 }
@@ -86,11 +98,85 @@ impl std::fmt::Display for LoadConfigError {
 impl std::error::Error for LoadConfigError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
+            #[cfg(feature = "yaml")]
             LoadConfigError::Yaml(e) => Some(e),
             LoadConfigError::Json(e) => Some(e),
+            #[cfg(feature = "ron")]
+            LoadConfigError::Ron(e) => Some(e),
             LoadConfigError::Io(e) => Some(e),
+            LoadConfigError::UnsupportedFormat(_) => None,
         }
     }
+}
+
+/// Compares two byte slices in a const context.
+const fn bytes_equal(a: &[u8], a_start: usize, a_len: usize, b: &[u8]) -> bool {
+    if a_len != b.len() {
+        return false;
+    }
+    let mut i = 0;
+    while i < a_len {
+        if a[a_start + i] != b[i] {
+            return false;
+        }
+        i += 1;
+    }
+    true
+}
+
+/// Validates that the file extension in a config path corresponds to an enabled format feature.
+///
+/// This is evaluated at compile time via the `ConfigFile::_FORMAT_CHECK` associated constant.
+/// If the extension requires a feature that isn't enabled, compilation fails with a clear message.
+const fn validate_config_format(path: &str) {
+    let bytes = path.as_bytes();
+    let len = bytes.len();
+
+    // Find last '.'
+    let mut dot_pos = len;
+    let mut i = len;
+    while i > 0 {
+        i -= 1;
+        if bytes[i] == b'.' {
+            dot_pos = i;
+            break;
+        }
+    }
+
+    if dot_pos == len {
+        panic!("Config file path must have a file extension (.yaml, .yml, .json, or .ron)");
+    }
+
+    let ext_start = dot_pos + 1;
+    let ext_len = len - ext_start;
+
+    // Check yaml/yml
+    if bytes_equal(bytes, ext_start, ext_len, b"yaml")
+        || bytes_equal(bytes, ext_start, ext_len, b"yml")
+    {
+        if !cfg!(feature = "yaml") {
+            panic!("YAML config requires the 'yaml' feature. Add features = [\"yaml\"] to your bevy_config_file dependency.");
+        }
+        return;
+    }
+
+    // Check json
+    if bytes_equal(bytes, ext_start, ext_len, b"json") {
+        if !cfg!(feature = "json") {
+            panic!("JSON config requires the 'json' feature. Add features = [\"json\"] to your bevy_config_file dependency.");
+        }
+        return;
+    }
+
+    // Check ron
+    if bytes_equal(bytes, ext_start, ext_len, b"ron") {
+        if !cfg!(feature = "ron") {
+            panic!("RON config requires the 'ron' feature. Add features = [\"ron\"] to your bevy_config_file dependency.");
+        }
+        return;
+    }
+
+    panic!("Unsupported config file extension. Supported: .yaml, .yml, .json, .ron");
 }
 
 /// Trait for types that can be loaded from a configuration file.
@@ -115,8 +201,15 @@ pub trait ConfigFile: 'static {
     /// The file path to load the configuration from.
     ///
     /// This should typically be a path relative to your game's root directory,
-    /// such as "assets/config/settings.yaml".
+    /// such as `"assets/config/settings.yaml"`.
+    ///
+    /// The file extension determines the format: `.yaml`/`.yml`, `.json`, or `.ron`.
+    /// The corresponding feature must be enabled.
     const PATH: &'static str;
+
+    /// Compile-time validation that the file extension matches an enabled format feature.
+    /// Do not override this.
+    const _FORMAT_CHECK: () = validate_config_format(Self::PATH);
 }
 
 /// Creates a Bevy plugin that loads a configuration resource from a file at startup.
@@ -166,6 +259,9 @@ where
         + Reflect
         + GetTypeRegistration,
 {
+    // Force compile-time evaluation of format validation
+    let _ = T::_FORMAT_CHECK;
+
     app.register_type::<T>();
     app.add_systems(Startup, load_resource_from_config_file::<T>);
 }
@@ -229,10 +325,13 @@ where
     }
 }
 
-/// Loads configuration from a YAML file with optional environment variable overrides.
+/// Loads configuration from a file with optional environment variable overrides.
+///
+/// The format is determined by the file extension: `.yaml`/`.yml`, `.json`, or `.ron`.
+/// The corresponding feature must be enabled.
 ///
 /// This function performs a two-stage loading process:
-/// 1. Loads the base configuration from the YAML file specified in `T::PATH`
+/// 1. Loads the base configuration from the file specified in `T::PATH`
 /// 2. Applies any overrides from an environment variable (if present)
 ///
 /// # Environment Variable Overrides
@@ -260,6 +359,9 @@ where
 /// Returns an error if:
 /// - The configuration file cannot be read (`LoadConfigError::Io`)
 /// - The YAML content is invalid (`LoadConfigError::Yaml`)
+/// - The JSON content is invalid (`LoadConfigError::Json`)
+/// - The RON content is invalid (`LoadConfigError::Ron`)
+/// - The file extension is not supported (`LoadConfigError::UnsupportedFormat`)
 /// - The environment variable contains invalid JSON (`LoadConfigError::Json`)
 /// - The deserialization fails (`LoadConfigError::Json`)
 ///
@@ -291,16 +393,22 @@ where
 {
     let config_path = T::PATH;
 
-    // Load base config from YAML file
-    let base_config = match fs::read_to_string(config_path) {
-        Ok(yaml_content) => match serde_yaml::from_str::<T>(&yaml_content) {
-            Ok(config) => config,
-            Err(e) => return Err(LoadConfigError::Yaml(e)),
-        },
-        Err(e) => return Err(LoadConfigError::Io(e)),
+    // Load file content
+    let content = fs::read_to_string(config_path).map_err(LoadConfigError::Io)?;
+
+    // Parse based on file extension
+    let ext = config_path.rsplit_once('.').map(|(_, e)| e).unwrap_or("");
+    let base_config: T = match ext {
+        #[cfg(feature = "yaml")]
+        "yaml" | "yml" => serde_yml::from_str(&content).map_err(LoadConfigError::Yaml)?,
+        #[cfg(feature = "json")]
+        "json" => serde_json::from_str(&content).map_err(LoadConfigError::Json)?,
+        #[cfg(feature = "ron")]
+        "ron" => ron::from_str(&content).map_err(LoadConfigError::Ron)?,
+        other => return Err(LoadConfigError::UnsupportedFormat(other.to_string())),
     };
 
-    // Check for environment variable override (used to disable autosaves in test)
+    // Apply environment variable overrides (always JSON)
     let type_name = std::any::type_name::<T>()
         .split("::")
         .last()
@@ -308,18 +416,12 @@ where
     let env_var_name = format!("CONFIG_{type_name}");
 
     if let Ok(json_override) = env::var(&env_var_name) {
-        let json_override: JsonValue = match serde_json::from_str(&json_override) {
-            Ok(v) => v,
-            Err(e) => return Err(LoadConfigError::Json(e)),
-        };
+        let json_override: JsonValue =
+            serde_json::from_str(&json_override).map_err(LoadConfigError::Json)?;
 
-        // Convert base config to JSON value for merging
-        let mut base_json = match serde_json::to_value(&base_config) {
-            Ok(v) => v,
-            Err(e) => return Err(LoadConfigError::Json(e)),
-        };
+        let mut base_json =
+            serde_json::to_value(&base_config).map_err(LoadConfigError::Json)?;
 
-        // Override top-level values from JSON override
         if let (JsonValue::Object(base_map), JsonValue::Object(override_map)) =
             (&mut base_json, json_override)
         {
@@ -328,11 +430,7 @@ where
             }
         }
 
-        // Convert back to T
-        match serde_json::from_value(base_json) {
-            Ok(config) => Ok(config),
-            Err(e) => Err(LoadConfigError::Json(e)),
-        }
+        serde_json::from_value(base_json).map_err(LoadConfigError::Json)
     } else {
         Ok(base_config)
     }

@@ -3,22 +3,26 @@ name = "bevy_config_file"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
-description = "A simple Bevy plugin for loading configuration from YAML files with environment variable overrides"
+description = "A Bevy plugin for loading configuration from YAML, JSON, or RON files with environment variable overrides"
 license = "MIT"
 repository = "https://github.com/peterellisjones/bevy_config_file"
-keywords = ["bevy", "config", "yaml", "gamedev", "plugin"]
+keywords = ["bevy", "config", "yaml", "json", "gamedev"]
 categories = ["game-engines", "config"]
 readme = "README.md"
 
 [features]
-default = ["logging"]
+default = ["yaml", "logging"]
 logging = []
+yaml = ["dep:serde_yml"]
+json = []
+ron = ["dep:ron"]
 
 [dependencies]
 bevy = { version = "^0.18.0", default-features = false, features = ["bevy_log"] }
 serde = { version = "1.0", features = ["derive"] }
-serde_yaml = "0.9"
+serde_yml = { version = "0.0.12", optional = true }
 serde_json = "1.0"
+ron = { version = "0.8", optional = true }
 
 [dev-dependencies]
 tempfile = "3"
