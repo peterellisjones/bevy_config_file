@@ -1,27 +1,34 @@
-//! A Bevy plugin for loading configuration from YAML files with environment variable overrides.
+//! A Bevy plugin for loading configuration from YAML, JSON, or RON files with environment variable overrides.
 //!
-//! This crate provides a simple way to load configuration from YAML files into Bevy resources,
+//! This crate provides a simple way to load configuration files into Bevy resources,
 //! with support for runtime overrides via environment variables. This is useful for game settings,
 //! input mappings, and other configurable parameters.
 //!
 //! # Features
 //!
-//! - Load configuration from YAML files at startup
-//! - Override configuration values using environment variables with JSON
+//! - Load configuration from YAML, JSON, or RON files at startup
+//! - Format is detected automatically from the file extension in [`ConfigFile::PATH`]
+//! - Override configuration values using environment variables (always JSON)
 //! - Automatic resource registration with Bevy's reflection system
 //! - Type-safe configuration with serde deserialization
-//! - Optional logging (enabled by default)
 //!
 //! ## Cargo Features
 //!
-//! - `logging` (default): Enable logging of config loading events
+//! | Feature   | Default | Description                              |
+//! |-----------|---------|------------------------------------------|
+//! | `yaml`    | yes     | YAML config support (`.yaml`, `.yml`)    |
+//! | `json`    | no      | JSON config support (`.json`)            |
+//! | `ron`     | no      | RON config support (`.ron`)              |
+//! | `logging` | yes     | Log config loading events                |
 //!
-//! To disable logging, add this to your `Cargo.toml`:
+//! At least one format feature must be enabled. To use multiple formats:
 //! ```toml
-//! bevy_config_file = { version = "0.1", default-features = false }
+//! bevy_config_file = { version = "0.1", features = ["yaml", "json", "ron"] }
 //! ```
 //!
 //! # Quick Start
+//!
+//! The format is detected from the file extension in `ConfigFile::PATH`.
 //!
 //! ```no_run
 //! # use bevy::prelude::*;
@@ -46,9 +53,30 @@
 //! # }
 //! ```
 //!
+//! # Config File Formats
+//!
+//! The same struct can be loaded from any supported format by changing the file extension:
+//!
+//! **YAML** (`camera_settings.yaml`):
+//! ```yaml
+//! pan_speed: 1000.0
+//! zoom_speed: 1.0
+//! ```
+//!
+//! **JSON** (`camera_settings.json`):
+//! ```json
+//! { "pan_speed": 1000.0, "zoom_speed": 1.0 }
+//! ```
+//!
+//! **RON** (`camera_settings.ron`):
+//! ```ron
+//! (pan_speed: 1000.0, zoom_speed: 1.0)
+//! ```
+//!
 //! # Environment Variable Overrides
 //!
-//! You can override configuration values at runtime using environment variables:
+//! You can override configuration values at runtime using environment variables.
+//! Overrides are **always JSON**, regardless of the config file format:
 //!
 //! ```bash
 //! CONFIG_CameraSettings='{"pan_speed": 2000.0}' ./game

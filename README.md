@@ -1,11 +1,12 @@
 # bevy_config_file
 
-A simple Bevy plugin for loading configuration from YAML files with environment variable overrides.
+A simple Bevy plugin for loading configuration from YAML, JSON, or RON files with environment variable overrides.
 
 ## Features
 
-- Load configuration from YAML files at application startup
-- Override configuration values using environment variables with JSON
+- Load configuration from YAML, JSON, or RON files at application startup
+- Format is detected automatically from the file extension
+- Override configuration values using environment variables (always JSON)
 - Automatic resource registration with Bevy's reflection system
 - Type-safe configuration with serde deserialization
 - Support for any type that implements `Resource`, `Deserialize`, `Serialize`, and `Reflect`
@@ -18,6 +19,30 @@ Add this to your `Cargo.toml`:
 [dependencies]
 bevy_config_file = "0.1"
 ```
+
+This enables the default features (`yaml` and `logging`). To use other formats, enable the corresponding features:
+
+```toml
+# YAML + JSON
+bevy_config_file = { version = "0.1", features = ["yaml", "json"] }
+
+# All formats
+bevy_config_file = { version = "0.1", features = ["yaml", "json", "ron"] }
+
+# JSON only, no logging
+bevy_config_file = { version = "0.1", default-features = false, features = ["json"] }
+```
+
+## Cargo Features
+
+| Feature   | Default | Description                              |
+|-----------|---------|------------------------------------------|
+| `yaml`    | yes     | YAML config support (`.yaml`, `.yml`)    |
+| `json`    | no      | JSON config support (`.json`)            |
+| `ron`     | no      | RON config support (`.ron`)              |
+| `logging` | yes     | Log config loading events                |
+
+At least one format feature must be enabled.
 
 ## Quick Start
 
@@ -41,12 +66,34 @@ impl ConfigFile for CameraSettings {
 }
 ```
 
-2. Create your YAML configuration file at `assets/config/camera_settings.yaml`:
+2. Create your config file (format is detected from the file extension):
+
+**YAML** (`camera_settings.yaml`):
 
 ```yaml
 pan_speed: 1000.0
 zoom_speed: 1.0
 initial_height: 1000.0
+```
+
+**JSON** (`camera_settings.json`):
+
+```json
+{
+  "pan_speed": 1000.0,
+  "zoom_speed": 1.0,
+  "initial_height": 1000.0
+}
+```
+
+**RON** (`camera_settings.ron`):
+
+```ron
+(
+    pan_speed: 1000.0,
+    zoom_speed: 1.0,
+    initial_height: 1000.0,
+)
 ```
 
 3. Add the plugin to your Bevy app:
@@ -77,6 +124,8 @@ fn camera_movement(
 You can override configuration values at runtime using environment variables. This is particularly useful for testing or debugging.
 
 The environment variable name follows the pattern `CONFIG_{TypeName}` where `TypeName` is the last component of your type's fully qualified name.
+
+**Note:** Overrides are always JSON, regardless of the config file format.
 
 ### Example
 
