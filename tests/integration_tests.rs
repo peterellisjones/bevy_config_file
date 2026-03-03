@@ -12,17 +12,6 @@ use tempfile::TempDir;
 // Mutex to serialize all tests since they change current_dir which is process-global
 static TEST_MUTEX: Mutex<()> = Mutex::new(());
 
-/// Generic test config that can be reused across all tests
-#[derive(Resource, Debug, Serialize, Deserialize, PartialEq)]
-struct TestConfig {
-    value: i32,
-    name: String,
-}
-
-impl ConfigFile for TestConfig {
-    const PATH: &'static str = "config.yaml";
-}
-
 /// Helper function to run a test with proper locking and cleanup.
 ///
 /// This manages:
@@ -78,75 +67,252 @@ fn run_config_test<T, F>(
     std::env::set_current_dir(original_dir).unwrap();
 }
 
-#[test]
-fn test_load_valid_config() {
-    run_config_test::<TestConfig, _>(
-        Some("value: 42\nname: test\n"),
-        vec![],
-        |app, load_result| {
-            assert!(load_result.is_ok());
+#[cfg(feature = "yaml")]
+mod yaml_tests {
+    use super::*;
 
-            let config = app.world().get_resource::<TestConfig>();
-            assert!(config.is_some());
-            let config = config.unwrap();
-            assert_eq!(config.value, 42);
-            assert_eq!(config.name, "test");
-        },
-    );
+    #[derive(Resource, Debug, Serialize, Deserialize, PartialEq)]
+    struct TestConfig {
+        value: i32,
+        name: String,
+    }
+
+    impl ConfigFile for TestConfig {
+        const PATH: &'static str = "config.yaml";
+    }
+
+    #[test]
+    fn test_load_valid_config() {
+        run_config_test::<TestConfig, _>(
+            Some("value: 42\nname: test\n"),
+            vec![],
+            |app, load_result| {
+                assert!(load_result.is_ok());
+
+                let config = app.world().get_resource::<TestConfig>();
+                assert!(config.is_some());
+                let config = config.unwrap();
+                assert_eq!(config.value, 42);
+                assert_eq!(config.name, "test");
+            },
+        );
+    }
+
+    #[test]
+    fn test_load_missing_config_file() {
+        run_config_test::<TestConfig, _>(
+            None, // No config file written
+            vec![],
+            |app, load_result| {
+                assert!(load_result.is_err());
+                let config = app.world().get_resource::<TestConfig>();
+                assert!(config.is_none());
+            },
+        );
+    }
+
+    #[test]
+    fn test_load_invalid_yaml() {
+        run_config_test::<TestConfig, _>(
+            Some("invalid: yaml: content:\n  - this is bad\n  missing bracket"),
+            vec![],
+            |app, load_result| {
+                assert!(load_result.is_err());
+                let config = app.world().get_resource::<TestConfig>();
+                assert!(config.is_none());
+            },
+        );
+    }
+
+    #[test]
+    fn test_load_with_env_override() {
+        run_config_test::<TestConfig, _>(
+            Some("value: 42\nname: test\n"),
+            vec![("CONFIG_TestConfig", r#"{"value": 100}"#)],
+            |app, load_result| {
+                assert!(load_result.is_ok());
+
+                let config = app.world().get_resource::<TestConfig>();
+                assert!(config.is_some());
+                let config = config.unwrap();
+                assert_eq!(config.value, 100); // Overridden value
+                assert_eq!(config.name, "test"); // Original value
+            },
+        );
+    }
+
+    #[test]
+    fn test_load_with_invalid_env_override() {
+        run_config_test::<TestConfig, _>(
+            Some("value: 42\nname: test\n"),
+            vec![("CONFIG_TestConfig", r#"{"value": invalid json}"#)],
+            |app, load_result| {
+                assert!(load_result.is_err());
+                let config = app.world().get_resource::<TestConfig>();
+                assert!(config.is_none());
+            },
+        );
+    }
 }
 
-#[test]
-fn test_load_missing_config_file() {
-    run_config_test::<TestConfig, _>(
-        None, // No config file written
-        vec![],
-        |app, load_result| {
-            assert!(load_result.is_err());
-            let config = app.world().get_resource::<TestConfig>();
-            assert!(config.is_none());
-        },
-    );
+#[cfg(feature = "json")]
+mod json_tests {
+    use super::*;
+
+    #[derive(Resource, Debug, Serialize, Deserialize, PartialEq)]
+    struct TestJsonConfig {
+        value: i32,
+        name: String,
+    }
+
+    impl ConfigFile for TestJsonConfig {
+        const PATH: &'static str = "config.json";
+    }
+
+    #[test]
+    fn test_load_valid_json_config() {
+        run_config_test::<TestJsonConfig, _>(
+            Some(r#"{"value": 42, "name": "test"}"#),
+            vec![],
+            |app, load_result| {
+                assert!(load_result.is_ok());
+                let config = app.world().get_resource::<TestJsonConfig>().unwrap();
+                assert_eq!(config.value, 42);
+                assert_eq!(config.name, "test");
+            },
+        );
+    }
+
+    #[test]
+    fn test_load_missing_json_config_file() {
+        run_config_test::<TestJsonConfig, _>(
+            None,
+            vec![],
+            |app, load_result| {
+                assert!(load_result.is_err());
+                assert!(app.world().get_resource::<TestJsonConfig>().is_none());
+            },
+        );
+    }
+
+    #[test]
+    fn test_load_invalid_json_config() {
+        run_config_test::<TestJsonConfig, _>(
+            Some("not valid json {{{"),
+            vec![],
+            |app, load_result| {
+                assert!(load_result.is_err());
+                assert!(app.world().get_resource::<TestJsonConfig>().is_none());
+            },
+        );
+    }
+
+    #[test]
+    fn test_load_json_with_env_override() {
+        run_config_test::<TestJsonConfig, _>(
+            Some(r#"{"value": 42, "name": "test"}"#),
+            vec![("CONFIG_TestJsonConfig", r#"{"value": 100}"#)],
+            |app, load_result| {
+                assert!(load_result.is_ok());
+                let config = app.world().get_resource::<TestJsonConfig>().unwrap();
+                assert_eq!(config.value, 100);
+                assert_eq!(config.name, "test");
+            },
+        );
+    }
 }
 
-#[test]
-fn test_load_invalid_yaml() {
-    run_config_test::<TestConfig, _>(
-        Some("invalid: yaml: content:\n  - this is bad\n  missing bracket"),
-        vec![],
-        |app, load_result| {
-            assert!(load_result.is_err());
-            let config = app.world().get_resource::<TestConfig>();
-            assert!(config.is_none());
-        },
-    );
+#[cfg(feature = "ron")]
+mod ron_tests {
+    use super::*;
+
+    #[derive(Resource, Debug, Serialize, Deserialize, PartialEq)]
+    struct TestRonConfig {
+        value: i32,
+        name: String,
+    }
+
+    impl ConfigFile for TestRonConfig {
+        const PATH: &'static str = "config.ron";
+    }
+
+    #[test]
+    fn test_load_valid_ron_config() {
+        run_config_test::<TestRonConfig, _>(
+            Some("(value: 42, name: \"test\")"),
+            vec![],
+            |app, load_result| {
+                assert!(load_result.is_ok());
+                let config = app.world().get_resource::<TestRonConfig>().unwrap();
+                assert_eq!(config.value, 42);
+                assert_eq!(config.name, "test");
+            },
+        );
+    }
+
+    #[test]
+    fn test_load_missing_ron_config_file() {
+        run_config_test::<TestRonConfig, _>(
+            None,
+            vec![],
+            |app, load_result| {
+                assert!(load_result.is_err());
+                assert!(app.world().get_resource::<TestRonConfig>().is_none());
+            },
+        );
+    }
+
+    #[test]
+    fn test_load_invalid_ron_config() {
+        run_config_test::<TestRonConfig, _>(
+            Some("not valid ron {{{"),
+            vec![],
+            |app, load_result| {
+                assert!(load_result.is_err());
+                assert!(app.world().get_resource::<TestRonConfig>().is_none());
+            },
+        );
+    }
+
+    #[test]
+    fn test_load_ron_with_env_override() {
+        run_config_test::<TestRonConfig, _>(
+            Some("(value: 42, name: \"test\")"),
+            vec![("CONFIG_TestRonConfig", r#"{"value": 100}"#)],
+            |app, load_result| {
+                assert!(load_result.is_ok());
+                let config = app.world().get_resource::<TestRonConfig>().unwrap();
+                assert_eq!(config.value, 100);
+                assert_eq!(config.name, "test");
+            },
+        );
+    }
 }
 
-#[test]
-fn test_load_with_env_override() {
-    run_config_test::<TestConfig, _>(
-        Some("value: 42\nname: test\n"),
-        vec![("CONFIG_TestConfig", r#"{"value": 100}"#)],
-        |app, load_result| {
-            assert!(load_result.is_ok());
+mod unsupported_format_tests {
+    use super::*;
+    use bevy_config_file::load_config_file;
 
-            let config = app.world().get_resource::<TestConfig>();
-            assert!(config.is_some());
-            let config = config.unwrap();
-            assert_eq!(config.value, 100); // Overridden value
-            assert_eq!(config.name, "test"); // Original value
-        },
-    );
-}
+    #[derive(Debug, Serialize, Deserialize)]
+    struct TestTomlConfig {
+        value: i32,
+    }
 
-#[test]
-fn test_load_with_invalid_env_override() {
-    run_config_test::<TestConfig, _>(
-        Some("value: 42\nname: test\n"),
-        vec![("CONFIG_TestConfig", r#"{"value": invalid json}"#)],
-        |app, load_result| {
-            assert!(load_result.is_err());
-            let config = app.world().get_resource::<TestConfig>();
-            assert!(config.is_none());
-        },
-    );
+    impl ConfigFile for TestTomlConfig {
+        const PATH: &'static str = "config.toml";
+    }
+
+    #[test]
+    fn test_unsupported_format_returns_error() {
+        let _lock = TEST_MUTEX.lock().unwrap();
+        let test_dir = TempDir::new().unwrap();
+        fs::write(test_dir.path().join("config.toml"), "value = 42").unwrap();
+        let original_dir = std::env::current_dir().unwrap();
+        std::env::set_current_dir(test_dir.path()).unwrap();
+
+        let result = load_config_file::<TestTomlConfig>();
+        assert!(result.is_err());
+
+        std::env::set_current_dir(original_dir).unwrap();
+    }
 }
