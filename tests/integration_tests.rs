@@ -81,6 +81,30 @@ mod yaml_tests {
         const PATH: &'static str = "config.yaml";
     }
 
+    #[derive(Resource, Debug, Serialize, Deserialize, PartialEq)]
+    struct TestYmlConfig {
+        value: i32,
+        name: String,
+    }
+
+    impl ConfigFile for TestYmlConfig {
+        const PATH: &'static str = "config.yml";
+    }
+
+    #[test]
+    fn test_load_valid_yml_config() {
+        run_config_test::<TestYmlConfig, _>(
+            Some("value: 42\nname: test\n"),
+            vec![],
+            |app, load_result| {
+                assert!(load_result.is_ok());
+                let config = app.world().get_resource::<TestYmlConfig>().unwrap();
+                assert_eq!(config.value, 42);
+                assert_eq!(config.name, "test");
+            },
+        );
+    }
+
     #[test]
     fn test_load_valid_config() {
         run_config_test::<TestConfig, _>(
@@ -220,6 +244,18 @@ mod json_tests {
             },
         );
     }
+
+    #[test]
+    fn test_load_json_with_invalid_env_override() {
+        run_config_test::<TestJsonConfig, _>(
+            Some(r#"{"value": 42, "name": "test"}"#),
+            vec![("CONFIG_TestJsonConfig", r#"{"value": invalid json}"#)],
+            |app, load_result| {
+                assert!(load_result.is_err());
+                assert!(app.world().get_resource::<TestJsonConfig>().is_none());
+            },
+        );
+    }
 }
 
 #[cfg(feature = "ron")]
@@ -287,11 +323,23 @@ mod ron_tests {
             },
         );
     }
+
+    #[test]
+    fn test_load_ron_with_invalid_env_override() {
+        run_config_test::<TestRonConfig, _>(
+            Some("(value: 42, name: \"test\")"),
+            vec![("CONFIG_TestRonConfig", r#"{"value": invalid json}"#)],
+            |app, load_result| {
+                assert!(load_result.is_err());
+                assert!(app.world().get_resource::<TestRonConfig>().is_none());
+            },
+        );
+    }
 }
 
 mod unsupported_format_tests {
     use super::*;
-    use bevy_config_file::load_config_file;
+    use bevy_config_file::{load_config_file, LoadConfigError};
 
     #[derive(Debug, Serialize, Deserialize)]
     struct TestTomlConfig {
@@ -311,7 +359,10 @@ mod unsupported_format_tests {
         std::env::set_current_dir(test_dir.path()).unwrap();
 
         let result = load_config_file::<TestTomlConfig>();
-        assert!(result.is_err());
+        match result {
+            Err(LoadConfigError::UnsupportedFormat(ext)) => assert_eq!(ext, "toml"),
+            other => panic!("expected UnsupportedFormat, got {:?}", other),
+        }
 
         std::env::set_current_dir(original_dir).unwrap();
     }
