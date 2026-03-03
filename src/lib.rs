@@ -57,6 +57,12 @@
 //! The environment variable name is `CONFIG_{TypeName}` where `TypeName` is the last
 //! component of the type's fully qualified name.
 
+#[cfg(not(any(feature = "yaml", feature = "json", feature = "ron")))]
+compile_error!(
+    "At least one config format feature must be enabled (yaml, json, or ron). \
+     Enable a format in your Cargo.toml: features = [\"yaml\"]"
+);
+
 use bevy::{prelude::*, reflect::GetTypeRegistration};
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
@@ -226,7 +232,7 @@ pub trait ConfigFile: 'static {
 ///
 /// The startup system will panic if:
 /// - The configuration file cannot be read
-/// - The YAML content is invalid
+/// - The file content is invalid for the detected format
 /// - An environment variable override contains invalid JSON
 ///
 /// # Example
@@ -260,6 +266,7 @@ where
         + GetTypeRegistration,
 {
     // Force compile-time evaluation of format validation
+    #[allow(clippy::let_unit_value)]
     let _ = T::_FORMAT_CHECK;
 
     app.register_type::<T>();
@@ -312,12 +319,10 @@ pub fn load_resource_from_config_file<T>(mut commands: Commands) -> bevy::ecs::e
 where
     T: Resource + for<'de> Deserialize<'de> + Serialize + ConfigFile,
 {
-    let config_path = T::PATH;
-
     match load_config_file::<T>() {
         Ok(config) => {
             #[cfg(feature = "logging")]
-            info!("loaded config from {}", config_path);
+            info!("loaded config from {}", T::PATH);
             commands.insert_resource(config);
             Ok(())
         }
