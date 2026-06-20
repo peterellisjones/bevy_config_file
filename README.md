@@ -181,3 +181,7 @@ App::new()
     .add_plugins(config_file_plugin::<InputSettings>)
     .run();
 ```
+
+## AI assistance
+
+This crate was developed with the help of AI coding tools.
