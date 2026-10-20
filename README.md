@@ -17,20 +17,20 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-bevy_config_file = "0.2"
+bevy_config_file = "0.4"
 ```
 
 This enables the default features (`yaml` and `logging`). To use other formats, enable the corresponding features:
 
 ```toml
 # YAML + JSON
-bevy_config_file = { version = "0.2", features = ["yaml", "json"] }
+bevy_config_file = { version = "0.4", features = ["yaml", "json"] }
 
 # All formats
-bevy_config_file = { version = "0.2", features = ["yaml", "json", "ron"] }
+bevy_config_file = { version = "0.4", features = ["yaml", "json", "ron"] }
 
 # JSON only, no logging
-bevy_config_file = { version = "0.2", default-features = false, features = ["json"] }
+bevy_config_file = { version = "0.4", default-features = false, features = ["json"] }
 ```
 
 ## Cargo Features
