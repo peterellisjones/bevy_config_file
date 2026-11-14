@@ -1,8 +1,8 @@
 [package]
 name = "bevy_config_file"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.97.1"
 description = "A Bevy plugin for loading configuration from YAML, JSON, or RON files with environment variable overrides"
 license = "MIT"
 repository = "https://github.com/peterellisjones/bevy_config_file"
@@ -20,9 +20,9 @@ ron = ["dep:ron"]
 [dependencies]
 bevy = { version = "^0.20.0", default-features = false, features = ["bevy_log"] }
 serde = { version = "1.0", features = ["derive"] }
-serde_yml = { version = "0.0.12", optional = true }
+serde_yml = { version = "0.0.13", optional = true }
 serde_json = "1.0"
-ron = { version = "0.8", optional = true }
+ron = { version = "0.12", optional = true }
 
 [dev-dependencies]
 tempfile = "3"
